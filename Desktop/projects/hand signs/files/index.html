@@ -1,0 +1,1927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GestureMagic — Real-Time Hand Gesture Recognition</title>
+
+<!-- MediaPipe Hands via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<style>
+  /* ─── Design Tokens ──────────────────────────── */
+  :root {
+    --bg:        #050810;
+    --bg2:       #0c1022;
+    --panel:     #111828;
+    --border:    rgba(100,140,255,0.15);
+    --accent:    #4f7fff;
+    --accent2:   #a855f7;
+    --text:      #e8eeff;
+    --muted:     #5a6a90;
+    --success:   #22d3a0;
+    --warn:      #f59e0b;
+    --danger:    #f43f5e;
+
+    --font-display: 'Orbitron', sans-serif;
+    --font-body:    'Space Mono', monospace;
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ─── Layout ──────────────────────────────────── */
+  #app {
+    display: grid;
+    grid-template-columns: 280px 1fr 240px;
+    grid-template-rows: 60px 1fr 80px;
+    height: 100vh;
+    gap: 0;
+  }
+
+  /* ─── Header ──────────────────────────────────── */
+  #header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    z-index: 10;
+  }
+
+  #logo {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  #status-bar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    margin-right: 6px;
+    transition: background 0.3s;
+  }
+  .status-dot.active { background: var(--success); box-shadow: 0 0 8px var(--success); }
+
+  #fps-display {
+    font-family: var(--font-display);
+    font-size: 13px;
+    color: var(--success);
+  }
+
+  /* ─── Left Panel ──────────────────────────────── */
+  #left-panel {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .panel-section-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* Gesture Cards */
+  .gesture-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .gesture-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+    transition: all 0.2s;
+    cursor: default;
+  }
+
+  .gesture-card.active {
+    border-color: var(--accent);
+    background: rgba(79,127,255,0.1);
+    box-shadow: 0 0 20px rgba(79,127,255,0.15);
+  }
+
+  .gesture-icon {
+    font-size: 22px;
+    width: 36px;
+    text-align: center;
+    line-height: 1;
+  }
+
+  .gesture-info { flex: 1; }
+  .gesture-name {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text);
+  }
+  .gesture-desc {
+    font-size: 9px;
+    color: var(--muted);
+    margin-top: 2px;
+    letter-spacing: 0.3px;
+  }
+
+  .gesture-badge {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: all 0.2s;
+  }
+  .gesture-card.active .gesture-badge {
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+  }
+
+  /* Controls */
+  .control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .control-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .toggle {
+    width: 36px; height: 20px;
+    border-radius: 10px;
+    background: var(--border);
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+    border: none;
+    outline: none;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: white;
+    top: 3px; left: 3px;
+    transition: left 0.2s;
+  }
+  .toggle.on::after { left: 19px; }
+
+  /* ─── Main Stage ──────────────────────────────── */
+  #stage {
+    position: relative;
+    overflow: hidden;
+    background: #000;
+  }
+
+  #video {
+    position: absolute;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* Mirror for natural UX */
+    opacity: 0.35;
+  }
+
+  #landmark-canvas {
+    position: absolute;
+    width: 100%; height: 100%;
+    transform: scaleX(-1);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  #fx-canvas {
+    position: absolute;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  /* Gesture Label Overlay */
+  #gesture-label {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: white;
+    text-shadow: 0 0 40px var(--accent);
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 5;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+
+  #gesture-label.show { opacity: 1; }
+
+  /* Start Screen */
+  #start-screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(79,127,255,0.08) 0%, transparent 70%);
+    z-index: 20;
+    gap: 20px;
+    text-align: center;
+    padding: 40px;
+  }
+
+  #start-screen h2 {
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 900;
+    letter-spacing: 6px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  #start-screen p {
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 380px;
+    line-height: 1.8;
+    letter-spacing: 0.5px;
+  }
+
+  #start-btn {
+    margin-top: 10px;
+    padding: 14px 40px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: white;
+    border: none;
+    border-radius: 40px;
+    cursor: pointer;
+    transition: all 0.3s;
+    box-shadow: 0 0 30px rgba(79,127,255,0.4);
+  }
+
+  #start-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 50px rgba(79,127,255,0.6);
+  }
+
+  /* Loading Overlay */
+  #loading-overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    z-index: 25;
+    gap: 16px;
+  }
+
+  #loading-overlay.show { display: flex; }
+
+  .loader-ring {
+    width: 60px; height: 60px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #loading-text {
+    font-family: var(--font-display);
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--muted);
+  }
+
+  /* ─── Right Panel ─────────────────────────────── */
+  #right-panel {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 20px 16px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  /* Data readouts */
+  .data-box {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .data-box-title {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 10px;
+  }
+  .data-row:last-child { border-bottom: none; }
+  .data-key { color: var(--muted); }
+  .data-val {
+    color: var(--accent);
+    font-weight: 700;
+    font-family: var(--font-display);
+    font-size: 10px;
+  }
+
+  /* Confidence Meter */
+  .meter-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .meter-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .meter-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    transition: width 0.15s;
+    width: 0%;
+  }
+
+  /* Finger indicators */
+  .finger-row {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    padding: 8px 0;
+  }
+
+  .finger-dot {
+    width: 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .finger-pip {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+    transition: all 0.15s;
+  }
+  .finger-pip.up {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .finger-label {
+    font-size: 7px;
+    color: var(--muted);
+    letter-spacing: 0.3px;
+    text-align: center;
+  }
+
+  /* ─── Bottom Bar ──────────────────────────────── */
+  #bottom-bar {
+    grid-column: 1 / -1;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    padding: 0 24px;
+  }
+
+  .shortcut {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .key {
+    padding: 2px 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  /* ─── Scrollbar ───────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ─── Scan line overlay ───────────────────────── */
+  #stage::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Grid overlay on stage */
+  #grid-overlay {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(79,127,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(79,127,255,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Corner decorations */
+  .corner {
+    position: absolute;
+    width: 20px; height: 20px;
+    border-color: var(--accent);
+    border-style: solid;
+    z-index: 6;
+    opacity: 0.5;
+  }
+  .corner-tl { top: 12px; left: 12px; border-width: 1px 0 0 1px; }
+  .corner-tr { top: 12px; right: 12px; border-width: 1px 1px 0 0; }
+  .corner-bl { bottom: 12px; left: 12px; border-width: 0 0 1px 1px; }
+  .corner-br { bottom: 12px; right: 12px; border-width: 0 1px 1px 0; }
+
+  /* Hand presence indicator ring */
+  #hand-ring {
+    position: absolute;
+    width: 80px; height: 80px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 4;
+    opacity: 0;
+    transition: opacity 0.3s;
+    animation: ring-pulse 2s ease-in-out infinite;
+    display: none;
+  }
+
+  @keyframes ring-pulse {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+    50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.3; }
+  }
+
+  /* Recent gestures log */
+  .log-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    animation: slide-in 0.3s ease;
+    background: rgba(255,255,255,0.02);
+    margin-bottom: 3px;
+  }
+
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(10px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .log-icon { font-size: 14px; }
+  .log-name { color: var(--text); flex: 1; letter-spacing: 0.3px; }
+  .log-time { color: var(--muted); font-size: 8px; }
+
+  /* Rock Particle Container */
+  #rock-particle-container {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 120px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    z-index: 6;
+  }
+
+  #rock-particle-container.active {
+    opacity: 1;
+  }
+
+  .particle {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    background: radial-gradient(circle at 30% 30%, #9f9064, #f59e0b44);
+    border-radius: 50%;
+    box-shadow: 
+      0 0 12px #eab308aa, 
+      0 0 24px #f59e0b55,
+      inset 0 0 4px #fff33;
+    animation: superOrbit 1.5s linear infinite;
+  }
+
+  @keyframes superOrbit {
+    0% {
+      transform: rotate(0deg) translateX(50px) rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg) translateX(50px) rotate(-360deg);
+    }
+  }
+
+  /* ─── Rock Animation Container ─────────────── */
+  #rock-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 180px;
+    background: linear-gradient(180deg, rgba(234, 179, 8, 0.05) 0%, rgba(234, 179, 8, 0.02) 100%);
+    border-top: 2px solid rgba(234, 179, 8, 0.2);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 15;
+    overflow: hidden;
+  }
+
+  #rock-container.active {
+    display: flex;
+  }
+
+  #rock-label {
+    position: absolute;
+    top: 12px;
+    left: 20px;
+    font-family: var(--font-display);
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--warn);
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+
+  #rock-status {
+    position: absolute;
+    bottom: 12px;
+    right: 20px;
+    font-family: var(--font-body);
+    font-size: 9px;
+    color: var(--warn);
+    letter-spacing: 0.5px;
+    opacity: 0.7;
+  }
+
+  #rock-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── HEADER ── -->
+  <header id="header">
+    <div id="logo">GESTURE_MAGIC</div>
+    <div id="status-bar">
+      <span><span class="status-dot" id="cam-dot"></span>CAMERA</span>
+      <span><span class="status-dot" id="model-dot"></span>MODEL</span>
+      <span><span class="status-dot" id="detect-dot"></span>DETECTING</span>
+      <span id="fps-display">-- FPS</span>
+    </div>
+    <div style="font-size:10px; color:var(--muted); letter-spacing:1px;">v2.0 · MediaPipe Hands</div>
+  </header>
+
+  <!-- ── LEFT PANEL ── -->
+  <aside id="left-panel">
+    <div>
+      <div class="panel-section-title">Gesture Map</div>
+      <div class="gesture-list" id="gesture-list">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+    <div>
+      <div class="panel-section-title">Display Settings</div>
+      <div class="control-row">
+        <span class="control-label">Skeleton Overlay</span>
+        <button class="toggle on" id="toggle-skeleton" onclick="toggleSetting('skeleton',this)"></button>
+      </div>
+      <div class="control-row">
+        <span class="control-label">FX Animations</span>
+        <button class="toggle on" id="toggle-fx" onclick="toggleSetting('fx',this)"></button>
+      </div>
+      <div class="control-row">
+        <span class="control-label">Mirror Mode</span>
+        <button class="toggle on" id="toggle-mirror" onclick="toggleSetting('mirror',this)"></button>
+      </div>
+      <div class="control-row">
+        <span class="control-label">Grid Overlay</span>
+        <button class="toggle on" id="toggle-grid" onclick="toggleSetting('grid',this)"></button>
+      </div>
+      <div class="control-row">
+        <span class="control-label">Sound Effects</span>
+        <button class="toggle" id="toggle-sound" onclick="toggleSetting('sound',this)"></button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN STAGE ── -->
+  <main id="stage">
+    <div id="grid-overlay"></div>
+    <div class="corner corner-tl"></div>
+    <div class="corner corner-tr"></div>
+    <div class="corner corner-bl"></div>
+    <div class="corner corner-br"></div>
+
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="landmark-canvas"></canvas>
+    <canvas id="fx-canvas"></canvas>
+    <div id="hand-ring"></div>
+    <div id="gesture-label"></div>
+
+    <!-- Rock Particle Container -->
+    <div id="rock-particle-container">
+      <div class="particle"></div>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen">
+      <div style="font-size:48px; margin-bottom:10px;">✋</div>
+      <h2>GESTURE MAGIC</h2>
+      <p>Real-time hand gesture recognition powered by MediaPipe.<br>
+         Detect open palm, fist, peace sign, thumbs up, pinch, swipe and more.<br>
+         Each gesture triggers a unique visual animation.</p>
+      <button id="start-btn" onclick="startCamera()">ACTIVATE CAMERA</button>
+      <p style="font-size:9px; margin-top:10px; color: var(--muted);">
+        Camera access required · Works best in Chrome/Edge
+      </p>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+      <div class="loader-ring"></div>
+      <div id="loading-text">INITIALIZING MODEL...</div>
+    </div>
+  </main>
+
+  <!-- ── RIGHT PANEL ── -->
+  <aside id="right-panel">
+
+    <!-- Finger State -->
+    <div>
+      <div class="panel-section-title">Finger State</div>
+      <div class="data-box">
+        <div class="finger-row" id="finger-row">
+          <div class="finger-dot"><div class="finger-pip" id="fp-thumb"></div><div class="finger-label">THUMB</div></div>
+          <div class="finger-dot"><div class="finger-pip" id="fp-index"></div><div class="finger-label">INDEX</div></div>
+          <div class="finger-dot"><div class="finger-pip" id="fp-middle"></div><div class="finger-label">MID</div></div>
+          <div class="finger-dot"><div class="finger-pip" id="fp-ring"></div><div class="finger-label">RING</div></div>
+          <div class="finger-dot"><div class="finger-pip" id="fp-pinky"></div><div class="finger-label">PINKY</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confidence -->
+    <div>
+      <div class="panel-section-title">Detection Confidence</div>
+      <div class="data-box">
+        <div class="meter-label"><span>HAND DETECTION</span><span id="conf-hand-val">0%</span></div>
+        <div class="meter-bar"><div class="meter-fill" id="conf-hand"></div></div>
+        <div class="meter-label"><span>GESTURE MATCH</span><span id="conf-gesture-val">0%</span></div>
+        <div class="meter-bar"><div class="meter-fill" id="conf-gesture"></div></div>
+      </div>
+    </div>
+
+    <!-- Hand Data -->
+    <div>
+      <div class="panel-section-title">Hand Metrics</div>
+      <div class="data-box">
+        <div class="data-row"><span class="data-key">Handedness</span><span class="data-val" id="d-hand">—</span></div>
+        <div class="data-row"><span class="data-key">Palm X</span><span class="data-val" id="d-palmx">—</span></div>
+        <div class="data-row"><span class="data-key">Palm Y</span><span class="data-val" id="d-palmy">—</span></div>
+        <div class="data-row"><span class="data-key">Palm Size</span><span class="data-val" id="d-palmsize">—</span></div>
+        <div class="data-row"><span class="data-key">Fingers Up</span><span class="data-val" id="d-fingers">—</span></div>
+        <div class="data-row"><span class="data-key">Gesture</span><span class="data-val" id="d-gesture">—</span></div>
+      </div>
+    </div>
+
+    <!-- Gesture Log -->
+    <div>
+      <div class="panel-section-title">Recent Gestures</div>
+      <div id="gesture-log" style="max-height: 180px; overflow-y: auto;"></div>
+    </div>
+  </aside>
+
+  <!-- ── BOTTOM BAR ── -->
+  <footer id="bottom-bar">
+    <div class="shortcut"><span class="key">S</span> Toggle Skeleton</div>
+    <div class="shortcut"><span class="key">F</span> Toggle FX</div>
+    <div class="shortcut"><span class="key">G</span> Toggle Grid</div>
+    <div class="shortcut"><span class="key">ESC</span> Stop Camera</div>
+    <div class="shortcut">Made with MediaPipe + Canvas API</div>
+  </footer>
+
+</div>
+
+<!-- ── ROCK ANIMATION CONTAINER ── -->
+<div id="rock-container">
+  <div id="rock-label">ROCK MODE ACTIVE</div>
+  <canvas id="rock-canvas"></canvas>
+  <div id="rock-status">Particle accelerating...</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  GestureMagic — Core Engine
+//  Stack: MediaPipe Hands + Canvas 2D API
+// ═══════════════════════════════════════════════════════════════
+
+// ─── Gesture Definitions ─────────────────────────────────────
+const GESTURES = [
+  { id: 'open_palm',   emoji: '🖐', name: 'Open Palm',   desc: 'Energy wave burst',    color: '#4f7fff' },
+  { id: 'fist',        emoji: '✊', name: 'Fist',         desc: 'Impact shockwave',     color: '#f43f5e' },
+  { id: 'thumbs_up',   emoji: '👍', name: 'Thumbs Up',   desc: 'Rising power aura',    color: '#22d3a0' },
+  { id: 'pointing',    emoji: '☝️', name: 'Pointing',    desc: 'Laser beam trail',     color: '#f59e0b' },
+  { id: 'peace',       emoji: '✌️', name: 'Peace Sign',  desc: 'Prismatic burst',      color: '#a855f7' },
+  { id: 'pinch',       emoji: '🤌', name: 'Pinch',       desc: 'Gravity vortex',       color: '#06b6d4' },
+  { id: 'ok_sign',     emoji: '👌', name: 'OK Sign',     desc: 'Ring resonance',       color: '#84cc16' },
+  { id: 'swipe_right', emoji: '👉', name: 'Swipe Right', desc: 'Slash trail →',        color: '#f97316' },
+  { id: 'swipe_left',  emoji: '👈', name: 'Swipe Left',  desc: 'Slash trail ←',        color: '#e879f9' },
+  { id: 'rock',        emoji: '🤘', name: 'Rock On',     desc: 'Lightning surge',      color: '#eab308' },
+  { id: 'fuck_off',   emoji: '🖕', name: 'Fuck Off',    desc: 'Chaos explosion',      color: '#ff2d55' },
+];
+
+// ─── Settings State ───────────────────────────────────────────
+const settings = {
+  skeleton: true,
+  fx: true,
+  mirror: true,
+  grid: true,
+  sound: false,
+};
+
+// ─── Build Gesture Cards ──────────────────────────────────────
+const gestureList = document.getElementById('gesture-list');
+GESTURES.forEach(g => {
+  const card = document.createElement('div');
+  card.className = 'gesture-card';
+  card.id = `gc-${g.id}`;
+  card.innerHTML = `
+    <div class="gesture-icon">${g.emoji}</div>
+    <div class="gesture-info">
+      <div class="gesture-name">${g.name}</div>
+      <div class="gesture-desc">${g.desc}</div>
+    </div>
+    <div class="gesture-badge"></div>
+  `;
+  gestureList.appendChild(card);
+});
+
+// ─── Canvas Setup ─────────────────────────────────────────────
+const video      = document.getElementById('video');
+const landmarkCanvas = document.getElementById('landmark-canvas');
+const fxCanvas   = document.getElementById('fx-canvas');
+const lCtx       = landmarkCanvas.getContext('2d');
+const fCtx       = fxCanvas.getContext('2d');
+const stage      = document.getElementById('stage');
+
+function resizeCanvases() {
+  const { width, height } = stage.getBoundingClientRect();
+  landmarkCanvas.width  = fxCanvas.width  = width;
+  landmarkCanvas.height = fxCanvas.height = height;
+}
+resizeCanvases();
+window.addEventListener('resize', resizeCanvases);
+
+// ─── Rock Canvas Setup ───────────────────────────────────────
+const rockCanvas = document.getElementById('rock-canvas');
+const rockCtx = rockCanvas.getContext('2d');
+const rockContainer = document.getElementById('rock-container');
+
+function resizeRockCanvas() {
+  rockCanvas.width = rockContainer.offsetWidth;
+  rockCanvas.height = rockContainer.offsetHeight;
+}
+window.addEventListener('resize', resizeRockCanvas);
+
+// ─── State ────────────────────────────────────────────────────
+let currentGesture = null;
+let prevGesture    = null;
+let handPresent    = false;
+let palmCenter     = { x: 0.5, y: 0.5 };
+let palmSizePx     = 0;
+let fingerState    = [false, false, false, false, false]; // thumb→pinky
+let gestureConfidence = 0;
+let particles      = [];
+let effects        = [];
+let rockParticles  = [];   // Fast-moving particles for rock gesture
+let rockActive     = false; // Whether rock gesture is currently active
+let swipeHistory   = [];       // Track palm-x history for swipe detection
+let lastGestureLog = '';
+let fpsFrames      = 0;
+let fpsTime        = performance.now();
+let fps            = 0;
+
+// ─── Swipe Detection ──────────────────────────────────────────
+const SWIPE_FRAMES = 10;      // Look at last N frames
+const SWIPE_THRESHOLD = 0.12; // Min X-movement fraction
+
+// ─── MediaPipe Hands Setup ────────────────────────────────────
+let hands;
+let camera;
+
+async function startCamera() {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('loading-overlay').classList.add('show');
+  document.getElementById('loading-text').textContent = 'LOADING MEDIAPIPE MODEL...';
+
+  try {
+    // Init MediaPipe Hands
+    hands = new Hands({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,      // 0=lite, 1=full
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.6,
+    });
+
+    hands.onResults(onResults);
+
+    document.getElementById('loading-text').textContent = 'ACCESSING CAMERA...';
+
+    // Request camera
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+    });
+    video.srcObject = stream;
+
+    document.getElementById('cam-dot').classList.add('active');
+    document.getElementById('loading-text').textContent = 'STARTING DETECTION...';
+
+    // Use MediaPipe Camera utility for efficient frame processing
+    camera = new Camera(video, {
+      onFrame: async () => {
+        if (hands) await hands.send({ image: video });
+        measureFPS();
+      },
+      width: 1280,
+      height: 720,
+    });
+
+    await camera.start();
+
+    document.getElementById('model-dot').classList.add('active');
+    document.getElementById('loading-overlay').classList.remove('show');
+
+    // Start render loop
+    requestAnimationFrame(renderLoop);
+
+  } catch (err) {
+    console.error('Camera/Model error:', err);
+    document.getElementById('loading-text').textContent = `ERROR: ${err.message}`;
+    setTimeout(() => {
+      document.getElementById('loading-overlay').classList.remove('show');
+      document.getElementById('start-screen').style.display = 'flex';
+    }, 3000);
+  }
+}
+
+// ─── FPS Counter ──────────────────────────────────────────────
+function measureFPS() {
+  fpsFrames++;
+  const now = performance.now();
+  if (now - fpsTime >= 1000) {
+    fps = Math.round(fpsFrames * 1000 / (now - fpsTime));
+    fpsFrames = 0;
+    fpsTime = now;
+    document.getElementById('fps-display').textContent = `${fps} FPS`;
+  }
+}
+
+// ─── MediaPipe Results Handler ────────────────────────────────
+function onResults(results) {
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    handPresent = true;
+    document.getElementById('detect-dot').classList.add('active');
+
+    const landmarks  = results.multiHandLandmarks[0];
+    const handedness = results.multiHandedness?.[0]?.label || 'Right';
+    const confidence = results.multiHandedness?.[0]?.score || 0.9;
+
+    // Update palm center (landmark 9 = middle of palm)
+    palmCenter = { x: landmarks[9].x, y: landmarks[9].y };
+
+    // Update swipe history
+    swipeHistory.push(palmCenter.x);
+    if (swipeHistory.length > SWIPE_FRAMES) swipeHistory.shift();
+
+    // Calculate palm size (distance wrist→middle-MCP)
+    palmSizePx = dist(landmarks[0], landmarks[9]) * fxCanvas.width;
+
+    // Detect finger states
+    fingerState = detectFingers(landmarks);
+
+    // Classify gesture
+    const detected = classifyGesture(landmarks, fingerState);
+    gestureConfidence = detected.confidence;
+    currentGesture    = detected.name;
+
+    // Update UI data
+    updateDataPanel(handedness, confidence);
+
+    // Draw skeleton
+    if (settings.skeleton) drawSkeleton(landmarks);
+
+    // Trigger FX on new gesture
+    if (currentGesture !== prevGesture) {
+      onGestureChange(currentGesture, landmarks);
+      prevGesture = currentGesture;
+    }
+
+    // Show gesture label
+    showGestureLabel(currentGesture);
+
+    // Update position ring
+    const ring = document.getElementById('hand-ring');
+    ring.style.display = 'block';
+    ring.style.left = ((1 - palmCenter.x) * fxCanvas.width) + 'px'; // Mirror
+    ring.style.top  = (palmCenter.y * fxCanvas.height) + 'px';
+
+  } else {
+    handPresent = false;
+    prevGesture = null;
+    currentGesture = null;
+    rockActive = false;
+    rockContainer.classList.remove('active');
+    rockParticles = [];
+    document.getElementById('detect-dot').classList.remove('active');
+    document.getElementById('hand-ring').style.display = 'none';
+    clearGestureCards();
+    document.getElementById('gesture-label').classList.remove('show');
+    lCtx.clearRect(0, 0, landmarkCanvas.width, landmarkCanvas.height);
+    updateDataPanel('—', 0);
+  }
+}
+
+// ─── Euclidean Distance ───────────────────────────────────────
+function dist(a, b) {
+  return Math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2);
+}
+
+// ─── Finger Detection ─────────────────────────────────────────
+// Uses tip vs pip/mcp y-coordinate comparison for each finger
+// Returns array: [thumb, index, middle, ring, pinky] = true if extended
+function detectFingers(lm) {
+  // Thumb: compare tip.x vs ip.x (side-of-hand logic)
+  const thumbUp = lm[4].x < lm[3].x;  // Works for right hand (mirrored)
+
+  // Other fingers: tip.y < pip.y means extended (screen coords, y increases down)
+  const indexUp  = lm[8].y  < lm[6].y;
+  const middleUp = lm[12].y < lm[10].y;
+  const ringUp   = lm[16].y < lm[14].y;
+  const pinkyUp  = lm[20].y < lm[18].y;
+
+  return [thumbUp, indexUp, middleUp, ringUp, pinkyUp];
+}
+
+// ─── Gesture Classification ───────────────────────────────────
+function classifyGesture(lm, fingers) {
+  const [thumb, index, middle, ring, pinky] = fingers;
+  const upCount = fingers.filter(Boolean).length;
+
+  // Swipe detection via palm movement history
+  if (swipeHistory.length === SWIPE_FRAMES) {
+    const delta = swipeHistory[SWIPE_FRAMES-1] - swipeHistory[0];
+    if (Math.abs(delta) > SWIPE_THRESHOLD && upCount >= 2) {
+      if (delta > 0) return { name: 'swipe_right', confidence: 0.85 };
+      else           return { name: 'swipe_left',  confidence: 0.85 };
+    }
+  }
+
+  // Pinch: thumb tip close to index tip
+  const pinchDist = dist(lm[4], lm[8]);
+  if (pinchDist < 0.06 && !middle && !ring && !pinky) {
+    return { name: 'pinch', confidence: Math.min(1, 0.06 / Math.max(pinchDist, 0.01) * 0.7) };
+  }
+
+  // OK sign: thumb+index pinched, others extended
+  if (pinchDist < 0.07 && middle && ring && pinky) {
+    return { name: 'ok_sign', confidence: 0.88 };
+  }
+
+  // Open palm: all 5 fingers up
+  if (upCount === 5) return { name: 'open_palm', confidence: 0.95 };
+
+  // Fist: all fingers closed
+  if (upCount === 0) return { name: 'fist', confidence: 0.95 };
+
+  // Thumbs up: thumb up, all others down, wrist below thumb
+  if (thumb && !index && !middle && !ring && !pinky) {
+    return { name: 'thumbs_up', confidence: 0.92 };
+  }
+
+  // Pointing: only index up
+  if (!thumb && index && !middle && !ring && !pinky) {
+    return { name: 'pointing', confidence: 0.93 };
+  }
+
+  // Peace / Victory: index + middle up
+  if (!thumb && index && middle && !ring && !pinky) {
+    return { name: 'peace', confidence: 0.94 };
+  }
+
+  // Fuck Off: ONLY middle finger up, index/ring/pinky all curled
+  if (!thumb && !index && middle && !ring && !pinky) {
+    return { name: 'fuck_off', confidence: 0.95 };
+  }
+
+  // Rock on: index + pinky up
+  if (!thumb && index && !middle && !ring && pinky) {
+    return { name: 'rock', confidence: 0.90 };
+  }
+
+  return { name: 'unknown', confidence: 0.3 };
+}
+
+// ─── Skeleton Drawing ─────────────────────────────────────────
+const HAND_CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],         // Thumb
+  [0,5],[5,6],[6,7],[7,8],         // Index
+  [5,9],[9,10],[10,11],[11,12],    // Middle
+  [9,13],[13,14],[14,15],[15,16],  // Ring
+  [13,17],[17,18],[18,19],[19,20], // Pinky
+  [0,17]                           // Palm base
+];
+
+function drawSkeleton(lm) {
+  lCtx.clearRect(0, 0, landmarkCanvas.width, landmarkCanvas.height);
+  const W = landmarkCanvas.width, H = landmarkCanvas.height;
+
+  // Gesture color for skeleton tint
+  const gDef = GESTURES.find(g => g.id === currentGesture);
+  const color = gDef ? gDef.color : '#4f7fff';
+
+  // Draw connections
+  lCtx.lineWidth = 2;
+  HAND_CONNECTIONS.forEach(([a, b]) => {
+    const ax = (1 - lm[a].x) * W, ay = lm[a].y * H;
+    const bx = (1 - lm[b].x) * W, by = lm[b].y * H;
+    lCtx.beginPath();
+    lCtx.moveTo(ax, ay);
+    lCtx.lineTo(bx, by);
+    lCtx.strokeStyle = color + 'aa';
+    lCtx.stroke();
+  });
+
+  // Draw landmark dots
+  lm.forEach((pt, i) => {
+    const x = (1 - pt.x) * W, y = pt.y * H;
+    const isTip = [4, 8, 12, 16, 20].includes(i);
+    lCtx.beginPath();
+    lCtx.arc(x, y, isTip ? 5 : 3, 0, Math.PI*2);
+    lCtx.fillStyle = isTip ? '#ffffff' : color;
+    lCtx.fill();
+    lCtx.strokeStyle = color;
+    lCtx.lineWidth = 1;
+    lCtx.stroke();
+  });
+
+  // Wrist ring
+  const wx = (1 - lm[0].x) * W, wy = lm[0].y * H;
+  lCtx.beginPath();
+  lCtx.arc(wx, wy, 8, 0, Math.PI*2);
+  lCtx.fillStyle = color + '33';
+  lCtx.fill();
+  lCtx.strokeStyle = color;
+  lCtx.lineWidth = 2;
+  lCtx.stroke();
+}
+
+// ─── Gesture Change Handler ───────────────────────────────────
+function onGestureChange(gesture, landmarks) {
+  // Highlight UI card
+  clearGestureCards();
+  const card = document.getElementById(`gc-${gesture}`);
+  if (card) card.classList.add('active');
+
+  // Log it
+  addGestureLog(gesture);
+
+  // Trigger sound
+  if (settings.sound) playGestureSound(gesture);
+
+  // Handle rock gesture
+  if (gesture === 'rock') {
+    rockActive = true;
+    rockContainer.classList.add('active');
+    resizeRockCanvas();
+    // Create initial particles
+    createRockParticles();
+  } else {
+    rockActive = false;
+    rockContainer.classList.remove('active');
+    rockParticles = [];
+  }
+
+  // Trigger FX
+  if (settings.fx) triggerFX(gesture, landmarks);
+}
+
+// ─── FX: Particle System + Special Effects ────────────────────
+function triggerFX(gesture, landmarks) {
+  const W = fxCanvas.width, H = fxCanvas.height;
+  const cx = (1 - palmCenter.x) * W;
+  const cy = palmCenter.y * H;
+
+  switch (gesture) {
+
+    case 'open_palm':
+      // Glowing energy wave burst — radial particles expanding outward
+      for (let i = 0; i < 60; i++) {
+        const angle = (i / 60) * Math.PI * 2;
+        const speed = 4 + Math.random() * 6;
+        particles.push({
+          type: 'energy',
+          x: cx, y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1.0, decay: 0.02,
+          size: 4 + Math.random() * 6,
+          color: `hsl(${210 + Math.random()*40}, 100%, 70%)`,
+          trail: [],
+        });
+      }
+      // Add shockwave ring
+      effects.push({ type: 'shockwave', x: cx, y: cy, r: 0, maxR: Math.max(W, H) * 0.4,
+                     color: '#4f7fff', life: 1.0, decay: 0.025, width: 3 });
+      break;
+
+    case 'fist':
+      // Impact shockwave — burst of red/orange sparks
+      for (let i = 0; i < 40; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 8 + Math.random() * 12;
+        particles.push({
+          type: 'spark',
+          x: cx, y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 5,
+          life: 1.0, decay: 0.04,
+          size: 3 + Math.random() * 5,
+          color: `hsl(${Math.random()*30}, 100%, 60%)`,
+          gravity: 0.4,
+        });
+      }
+      // Concentric shockwaves
+      for (let k = 0; k < 3; k++) {
+        effects.push({ type: 'shockwave', x: cx, y: cy,
+                       r: k * 30, maxR: 200 + k * 60,
+                       color: '#f43f5e', life: 1.0, decay: 0.03 + k*0.01, width: 4 });
+      }
+      break;
+
+    case 'thumbs_up':
+      // Rising aura — particles floating upward
+      for (let i = 0; i < 50; i++) {
+        particles.push({
+          type: 'aura',
+          x: cx + (Math.random()-0.5)*80,
+          y: cy,
+          vx: (Math.random()-0.5) * 2,
+          vy: -(3 + Math.random() * 6),
+          life: 1.0, decay: 0.015,
+          size: 6 + Math.random() * 10,
+          color: `hsl(${160+Math.random()*30}, 100%, 60%)`,
+          wobble: Math.random() * 0.1,
+        });
+      }
+      effects.push({ type: 'aura_ring', x: cx, y: cy, r: 20, maxR: 120,
+                     color: '#22d3a0', life: 1.0, decay: 0.02, width: 2 });
+      break;
+
+    case 'pointing':
+      // Laser beam from fingertip
+      const tipX = (1 - (landmarks[8]?.x ?? palmCenter.x)) * W;
+      const tipY = (landmarks[8]?.y ?? palmCenter.y) * H;
+      effects.push({
+        type: 'laser',
+        x: tipX, y: tipY,
+        angle: -0.2, // Approximately pointing up
+        length: Math.max(W, H),
+        color: '#f59e0b',
+        life: 1.0, decay: 0.04,
+        width: 3,
+      });
+      for (let i = 0; i < 20; i++) {
+        particles.push({
+          type: 'spark',
+          x: tipX + (Math.random()-0.5)*20,
+          y: tipY + (Math.random()-0.5)*20,
+          vx: (Math.random()-0.5)*6,
+          vy: -Math.random()*8,
+          life: 1.0, decay: 0.05,
+          size: 3 + Math.random()*4,
+          color: '#f59e0b',
+          gravity: 0.2,
+        });
+      }
+      break;
+
+    case 'peace':
+      // Prismatic rainbow burst
+      const colors = ['#f43f5e','#f97316','#eab308','#22d3a0','#4f7fff','#a855f7'];
+      colors.forEach((col, ci) => {
+        for (let i = 0; i < 12; i++) {
+          const baseAngle = (ci / colors.length) * Math.PI * 2;
+          const angle = baseAngle + (Math.random()-0.5)*0.4;
+          const speed = 5 + Math.random()*6;
+          particles.push({
+            type: 'prism',
+            x: cx, y: cy,
+            vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+            life: 1.0, decay: 0.018,
+            size: 5 + Math.random()*6, color: col,
+          });
+        }
+      });
+      effects.push({ type: 'rainbow_ring', x: cx, y: cy, r: 0, maxR: 180,
+                     life: 1.0, decay: 0.02, width: 3 });
+      break;
+
+    case 'pinch':
+      // Gravity vortex — particles spiraling inward
+      for (let i = 0; i < 50; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 80 + Math.random() * 120;
+        particles.push({
+          type: 'vortex',
+          x: cx + Math.cos(angle)*radius,
+          y: cy + Math.sin(angle)*radius,
+          cx, cy,
+          angle, radius,
+          angularSpeed: 0.12 + Math.random()*0.08,
+          inSpeed: 1.5 + Math.random()*2,
+          life: 1.0, decay: 0.02,
+          size: 3 + Math.random()*5,
+          color: `hsl(${190+Math.random()*20}, 100%, 65%)`,
+        });
+      }
+      effects.push({ type: 'vortex_ring', x: cx, y: cy, r: 120, minR: 5,
+                     color: '#06b6d4', life: 1.0, decay: 0.02, width: 2 });
+      break;
+
+    case 'ok_sign':
+      // Ring resonance — expanding concentric rings
+      for (let k = 0; k < 5; k++) {
+        effects.push({ type: 'shockwave', x: cx, y: cy,
+                       r: k * 20, maxR: 150 + k*20,
+                       color: '#84cc16', life: 1.0, decay: 0.025 + k*0.005, width: 2 });
+      }
+      for (let i = 0; i < 30; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 3 + Math.random()*4;
+        particles.push({
+          type: 'energy', x: cx, y: cy,
+          vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed,
+          life: 1.0, decay: 0.025,
+          size: 3 + Math.random()*4, color: '#84cc16',
+        });
+      }
+      break;
+
+    case 'swipe_right':
+    case 'swipe_left':
+      // Slash trail across screen
+      const isRight = gesture === 'swipe_right';
+      effects.push({
+        type: 'slash',
+        x1: isRight ? 0      : W,
+        y1: cy - 40 + Math.random()*80,
+        x2: isRight ? W      : 0,
+        y2: cy - 40 + Math.random()*80,
+        progress: 0,
+        speed: 0.06,
+        color: isRight ? '#f97316' : '#e879f9',
+        life: 1.0, decay: 0.025, width: 4,
+      });
+      // Trailing particles
+      for (let i = 0; i < 25; i++) {
+        particles.push({
+          type: 'spark',
+          x: cx, y: cy,
+          vx: (isRight ? 1 : -1) * (5 + Math.random()*8),
+          vy: (Math.random()-0.5)*6,
+          life: 1.0, decay: 0.04,
+          size: 3 + Math.random()*5,
+          color: isRight ? '#f97316' : '#e879f9',
+          gravity: 0.15,
+        });
+      }
+      break;
+
+    case 'rock':
+      // Lightning surge
+      for (let k = 0; k < 3; k++) {
+        effects.push({
+          type: 'lightning',
+          x: cx, y: cy,
+          targetY: 0,
+          life: 1.0, decay: 0.08,
+          color: '#eab308',
+          branches: generateLightning(cx, cy, cx + (Math.random()-0.5)*100, 0, 6),
+        });
+      }
+      for (let i = 0; i < 30; i++) {
+        particles.push({
+          type: 'spark',
+          x: cx, y: cy,
+          vx: (Math.random()-0.5)*14,
+          vy: -(4 + Math.random()*10),
+          life: 1.0, decay: 0.05,
+          size: 2 + Math.random()*4, color: '#eab308',
+          gravity: 0.3,
+        });
+      }
+      break;
+
+    case 'fuck_off':
+      // Chaos explosion — massive screen-filling burst in angry reds/pinks
+      // 1. Three staggered full-screen shockwaves
+      for (let k = 0; k < 3; k++) {
+        effects.push({
+          type: 'shockwave',
+          x: cx, y: cy,
+          r: k * 40, maxR: Math.max(W, H) * 0.85,
+          color: k === 0 ? '#ff2d55' : k === 1 ? '#ff6b00' : '#ff0080',
+          life: 1.0, decay: 0.018 + k * 0.006, width: 5 - k,
+        });
+      }
+      // 2. Dense radial spark burst — 80 particles in every direction
+      for (let i = 0; i < 80; i++) {
+        const angle = (i / 80) * Math.PI * 2 + (Math.random() - 0.5) * 0.2;
+        const speed = 6 + Math.random() * 16;
+        particles.push({
+          type: 'spark',
+          x: cx, y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1.0, decay: 0.022,
+          size: 3 + Math.random() * 6,
+          color: `hsl(${340 + Math.random() * 40}, 100%, ${55 + Math.random() * 20}%)`,
+          gravity: 0.25,
+        });
+      }
+      // 3. Slower heavy embers that drift and fade
+      for (let i = 0; i < 30; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        particles.push({
+          type: 'energy',
+          x: cx, y: cy,
+          vx: Math.cos(angle) * (2 + Math.random() * 5),
+          vy: Math.sin(angle) * (2 + Math.random() * 5) - 3,
+          life: 1.0, decay: 0.012,
+          size: 8 + Math.random() * 12,
+          color: `hsl(${10 + Math.random() * 30}, 100%, 60%)`,
+        });
+      }
+      // 4. Four lightning forks shooting outward in cardinal directions
+      [[cx, cy, cx, 0],[cx, cy, W, cy],[cx, cy, cx, H],[cx, cy, 0, cy]].forEach(([x1,y1,x2,y2]) => {
+        effects.push({
+          type: 'lightning',
+          x: x1, y: y1,
+          life: 1.0, decay: 0.1,
+          color: '#ff2d55',
+          branches: generateLightning(x1, y1, x2, y2, 5),
+        });
+      });
+      break;
+  }
+}
+
+// ─── Lightning Generator ──────────────────────────────────────
+function generateLightning(x1, y1, x2, y2, depth) {
+  if (depth === 0) return [{ x1, y1, x2, y2 }];
+  const mx = (x1+x2)/2 + (Math.random()-0.5)*60;
+  const my = (y1+y2)/2 + (Math.random()-0.5)*30;
+  return [
+    ...generateLightning(x1, y1, mx, my, depth-1),
+    ...generateLightning(mx, my, x2, y2, depth-1),
+    ...(Math.random() > 0.5 ? generateLightning(mx, my, mx+(Math.random()-0.5)*80, my+40, depth-2) : []),
+  ];
+}
+
+// ─── Rock Gesture Particles ──────────────────────────────────
+function createRockParticles() {
+  if (!rockCanvas.width || !rockCanvas.height) return;
+  
+  const centerX = rockCanvas.width / 2;
+  const centerY = rockCanvas.height / 2;
+  
+  // Create multiple particles in a circular pattern
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2;
+    const radius = 20;
+    
+    rockParticles.push({
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+      angle: angle,
+      angularVelocity: 15 + Math.random() * 10, // Super fast angular velocity (radians per frame)
+      radius: 40 + Math.random() * 30, // Distance from center
+      radiusDecay: 0.98, // Slow decay
+      size: 6 + Math.random() * 4,
+      life: 1.0,
+      decay: 0.008, // Very slow decay
+      color: `hsl(${45 + Math.random() * 20}, 100%, ${50 + Math.random() * 20}%)`,
+    });
+  }
+}
+
+function updateAndDrawRockParticles() {
+  if (!rockCanvas || !rockCtx) return;
+  
+  rockCtx.clearRect(0, 0, rockCanvas.width, rockCanvas.height);
+  
+  const centerX = rockCanvas.width / 2;
+  const centerY = rockCanvas.height / 2;
+  
+  // Update and draw particles
+  rockParticles = rockParticles.filter(p => p.life > 0);
+  
+  if (rockParticles.length === 0 && rockActive) {
+    // Create new particles when old ones die
+    createRockParticles();
+  }
+  
+  rockParticles.forEach(p => {
+    // Update angular position - SUPER FAST rotation
+    p.angle += p.angularVelocity * 0.016; // 0.016 ≈ 16ms frame time in radians
+    
+    // Slow radius decay - particles spiral outward then back
+    p.radius *= p.radiusDecay;
+    if (p.radius < 10) p.radius = 40; // Reset to create pulsing effect
+    
+    // Calculate position
+    p.x = centerX + Math.cos(p.angle) * p.radius;
+    p.y = centerY + Math.sin(p.angle) * p.radius;
+    
+    // Draw particle with glow
+    rockCtx.globalAlpha = p.life;
+    rockCtx.beginPath();
+    rockCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    rockCtx.fillStyle = p.color;
+    rockCtx.shadowBlur = 15;
+    rockCtx.shadowColor = p.color;
+    rockCtx.fill();
+    
+    // Draw outer ring
+    rockCtx.beginPath();
+    rockCtx.arc(p.x, p.y, p.size * p.life * 1.5, 0, Math.PI * 2);
+    rockCtx.strokeStyle = p.color;
+    rockCtx.lineWidth = 0.5;
+    rockCtx.stroke();
+    
+    rockCtx.shadowBlur = 0;
+    
+    // Update life
+    p.life -= p.decay;
+  });
+  
+  rockCtx.globalAlpha = 1;
+}
+
+// ─── Main Render Loop ─────────────────────────────────────────
+function renderLoop() {
+  fCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+
+  if (settings.fx) {
+    updateAndDrawEffects();
+    updateAndDrawParticles();
+  }
+
+  // Render rock particles
+  if (rockActive) {
+    updateAndDrawRockParticles();
+  }
+
+  requestAnimationFrame(renderLoop);
+}
+
+function updateAndDrawParticles() {
+  particles = particles.filter(p => p.life > 0);
+  particles.forEach(p => {
+    fCtx.globalAlpha = p.life;
+
+    switch (p.type) {
+
+      case 'energy':
+      case 'prism':
+        // Glowing circle
+        fCtx.beginPath();
+        fCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI*2);
+        fCtx.fillStyle = p.color;
+        fCtx.shadowBlur = 12;
+        fCtx.shadowColor = p.color;
+        fCtx.fill();
+        fCtx.shadowBlur = 0;
+        p.x += p.vx; p.y += p.vy;
+        p.vx *= 0.96; p.vy *= 0.96;
+        break;
+
+      case 'spark':
+        // Elongated spark
+        fCtx.beginPath();
+        fCtx.moveTo(p.x, p.y);
+        fCtx.lineTo(p.x - p.vx*2, p.y - p.vy*2);
+        fCtx.strokeStyle = p.color;
+        fCtx.lineWidth = p.size * 0.5;
+        fCtx.shadowBlur = 8;
+        fCtx.shadowColor = p.color;
+        fCtx.stroke();
+        fCtx.shadowBlur = 0;
+        p.x += p.vx; p.y += p.vy;
+        if (p.gravity) p.vy += p.gravity;
+        p.vx *= 0.94; p.vy *= 0.94;
+        break;
+
+      case 'aura':
+        // Soft glowing orb floating up
+        fCtx.beginPath();
+        fCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI*2);
+        const grad = fCtx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * p.life);
+        grad.addColorStop(0, p.color + 'ff');
+        grad.addColorStop(1, p.color + '00');
+        fCtx.fillStyle = grad;
+        fCtx.fill();
+        p.x += p.vx + Math.sin(p.wobble * p.life * 50) * 1;
+        p.y += p.vy;
+        break;
+
+      case 'vortex':
+        // Inward-spiraling particle
+        p.angle += p.angularSpeed;
+        p.radius -= p.inSpeed;
+        p.x = p.cx + Math.cos(p.angle) * p.radius;
+        p.y = p.cy + Math.sin(p.angle) * p.radius;
+        fCtx.beginPath();
+        fCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI*2);
+        fCtx.fillStyle = p.color;
+        fCtx.shadowBlur = 8;
+        fCtx.shadowColor = p.color;
+        fCtx.fill();
+        fCtx.shadowBlur = 0;
+        if (p.radius < 5) p.life = 0;
+        break;
+    }
+
+    p.life -= p.decay;
+  });
+  fCtx.globalAlpha = 1;
+}
+
+function updateAndDrawEffects() {
+  effects = effects.filter(e => e.life > 0);
+  effects.forEach(e => {
+    fCtx.globalAlpha = e.life;
+
+    switch (e.type) {
+
+      case 'shockwave':
+        fCtx.beginPath();
+        fCtx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+        fCtx.strokeStyle = e.color;
+        fCtx.lineWidth = e.width * e.life;
+        fCtx.shadowBlur = 20;
+        fCtx.shadowColor = e.color;
+        fCtx.stroke();
+        fCtx.shadowBlur = 0;
+        e.r += (e.maxR - e.r) * 0.08 + 2;
+        break;
+
+      case 'aura_ring':
+        fCtx.beginPath();
+        fCtx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+        fCtx.strokeStyle = e.color;
+        fCtx.lineWidth = e.width;
+        fCtx.shadowBlur = 15;
+        fCtx.shadowColor = e.color;
+        fCtx.stroke();
+        fCtx.shadowBlur = 0;
+        e.r += 3;
+        break;
+
+      case 'rainbow_ring':
+        // Multicolor ring
+        const steps = 36;
+        for (let i = 0; i < steps; i++) {
+          const a1 = (i / steps) * Math.PI * 2;
+          const a2 = ((i+1) / steps) * Math.PI * 2;
+          fCtx.beginPath();
+          fCtx.arc(e.x, e.y, e.r, a1, a2);
+          fCtx.strokeStyle = `hsl(${(i/steps)*360}, 100%, 65%)`;
+          fCtx.lineWidth = e.width * 3;
+          fCtx.stroke();
+        }
+        e.r += 4;
+        break;
+
+      case 'laser':
+        const lx2 = e.x + Math.cos(e.angle) * e.length;
+        const ly2 = e.y + Math.sin(e.angle) * e.length;
+        fCtx.beginPath();
+        fCtx.moveTo(e.x, e.y);
+        fCtx.lineTo(lx2, ly2);
+        fCtx.strokeStyle = e.color;
+        fCtx.lineWidth = e.width * e.life;
+        fCtx.shadowBlur = 20;
+        fCtx.shadowColor = e.color;
+        fCtx.stroke();
+        // Core bright line
+        fCtx.lineWidth = 1;
+        fCtx.strokeStyle = '#fff';
+        fCtx.stroke();
+        fCtx.shadowBlur = 0;
+        break;
+
+      case 'slash':
+        const prog = Math.min(1, e.progress);
+        const curX = e.x1 + (e.x2 - e.x1) * prog;
+        const curY = e.y1 + (e.y2 - e.y1) * prog;
+        // Trail
+        fCtx.beginPath();
+        fCtx.moveTo(e.x1, e.y1);
+        fCtx.lineTo(curX, curY);
+        fCtx.strokeStyle = e.color;
+        fCtx.lineWidth = e.width * e.life;
+        fCtx.lineCap = 'round';
+        fCtx.shadowBlur = 25;
+        fCtx.shadowColor = e.color;
+        fCtx.stroke();
+        // Bright core
+        fCtx.lineWidth = 1;
+        fCtx.strokeStyle = '#fff';
+        fCtx.stroke();
+        fCtx.shadowBlur = 0;
+        e.progress += e.speed;
+        break;
+
+      case 'lightning':
+        fCtx.shadowBlur = 15;
+        fCtx.shadowColor = e.color;
+        e.branches.forEach(seg => {
+          fCtx.beginPath();
+          fCtx.moveTo(seg.x1, seg.y1);
+          fCtx.lineTo(seg.x2, seg.y2);
+          fCtx.strokeStyle = e.color;
+          fCtx.lineWidth = 1.5 * e.life;
+          fCtx.stroke();
+          fCtx.lineWidth = 0.5;
+          fCtx.strokeStyle = '#fff';
+          fCtx.stroke();
+        });
+        fCtx.shadowBlur = 0;
+        break;
+
+      case 'vortex_ring':
+        fCtx.beginPath();
+        fCtx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+        fCtx.strokeStyle = e.color;
+        fCtx.lineWidth = e.width;
+        fCtx.setLineDash([8, 4]);
+        fCtx.shadowBlur = 12;
+        fCtx.shadowColor = e.color;
+        fCtx.stroke();
+        fCtx.setLineDash([]);
+        fCtx.shadowBlur = 0;
+        e.r = Math.max(e.minR, e.r - 3);
+        break;
+    }
+
+    e.life -= e.decay;
+  });
+  fCtx.globalAlpha = 1;
+}
+
+// ─── UI Helpers ───────────────────────────────────────────────
+let labelTimeout;
+function showGestureLabel(gesture) {
+  const gDef = GESTURES.find(g => g.id === gesture);
+  if (!gDef) return;
+  const label = document.getElementById('gesture-label');
+  label.textContent = `${gDef.emoji} ${gDef.name}`;
+  label.style.textShadow = `0 0 40px ${gDef.color}`;
+  label.classList.add('show');
+  clearTimeout(labelTimeout);
+  labelTimeout = setTimeout(() => label.classList.remove('show'), 2000);
+}
+
+function clearGestureCards() {
+  document.querySelectorAll('.gesture-card').forEach(c => c.classList.remove('active'));
+}
+
+function updateDataPanel(handedness, confidence) {
+  document.getElementById('d-hand').textContent    = handedness;
+  document.getElementById('d-palmx').textContent   = handPresent ? (palmCenter.x * 100).toFixed(1) + '%' : '—';
+  document.getElementById('d-palmy').textContent   = handPresent ? (palmCenter.y * 100).toFixed(1) + '%' : '—';
+  document.getElementById('d-palmsize').textContent = handPresent ? Math.round(palmSizePx) + 'px' : '—';
+  document.getElementById('d-fingers').textContent  = handPresent ? fingerState.filter(Boolean).length + '/5' : '—';
+  document.getElementById('d-gesture').textContent  = currentGesture ? currentGesture.replace('_',' ').toUpperCase() : '—';
+
+  // Confidence bars
+  const hConf = Math.round(confidence * 100);
+  const gConf = Math.round(gestureConfidence * 100);
+  document.getElementById('conf-hand').style.width = hConf + '%';
+  document.getElementById('conf-hand-val').textContent = hConf + '%';
+  document.getElementById('conf-gesture').style.width = gConf + '%';
+  document.getElementById('conf-gesture-val').textContent = gConf + '%';
+
+  // Finger pips
+  const pips = ['fp-thumb','fp-index','fp-middle','fp-ring','fp-pinky'];
+  pips.forEach((id, i) => {
+    document.getElementById(id).classList.toggle('up', fingerState[i]);
+  });
+}
+
+let lastLogGesture = null;
+let lastLogTime    = 0;
+
+function addGestureLog(gesture) {
+  if (!gesture || gesture === 'unknown') return;
+  const now = Date.now();
+  if (gesture === lastLogGesture && now - lastLogTime < 1000) return;
+  lastLogGesture = gesture; lastLogTime = now;
+
+  const gDef = GESTURES.find(g => g.id === gesture);
+  if (!gDef) return;
+
+  const log = document.getElementById('gesture-log');
+  const time = new Date().toLocaleTimeString('en', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const item = document.createElement('div');
+  item.className = 'log-item';
+  item.innerHTML = `<span class="log-icon">${gDef.emoji}</span><span class="log-name">${gDef.name}</span><span class="log-time">${time}</span>`;
+  log.prepend(item);
+  // Keep max 20 entries
+  while (log.children.length > 20) log.removeChild(log.lastChild);
+}
+
+// ─── Web Audio for Sound Effects ──────────────────────────────
+let audioCtx;
+function playGestureSound(gesture) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const cfg = {
+    open_palm:   { freq: 880, type: 'sine',   dur: 0.3, gain: 0.2 },
+    fist:        { freq: 120, type: 'square',  dur: 0.15, gain: 0.3 },
+    thumbs_up:   { freq: 660, type: 'sine',    dur: 0.4, gain: 0.15 },
+    pointing:    { freq: 1100,type: 'sawtooth',dur: 0.2, gain: 0.1 },
+    peace:       { freq: 740, type: 'sine',    dur: 0.5, gain: 0.15 },
+    pinch:       { freq: 440, type: 'sine',    dur: 0.25,gain: 0.12 },
+    ok_sign:     { freq: 550, type: 'sine',    dur: 0.35,gain: 0.15 },
+    swipe_right: { freq: 800, type: 'sawtooth',dur: 0.2, gain: 0.15 },
+    swipe_left:  { freq: 600, type: 'sawtooth',dur: 0.2, gain: 0.15 },
+    rock:        { freq: 200, type: 'square',  dur: 0.3, gain: 0.25 },
+    fuck_off:    { freq: 80,  type: 'sawtooth', dur: 0.4, gain: 0.35 },
+  };
+  const s = cfg[gesture]; if (!s) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  osc.type = s.type; osc.frequency.value = s.freq;
+  gain.gain.setValueAtTime(s.gain, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + s.dur);
+  osc.start(); osc.stop(audioCtx.currentTime + s.dur);
+}
+
+// ─── Settings Toggles ─────────────────────────────────────────
+function toggleSetting(key, btn) {
+  settings[key] = !settings[key];
+  btn.classList.toggle('on', settings[key]);
+
+  if (key === 'mirror') {
+    video.style.transform = settings.mirror ? 'scaleX(-1)' : 'scaleX(1)';
+    landmarkCanvas.style.transform = settings.mirror ? 'scaleX(-1)' : 'scaleX(1)';
+  }
+  if (key === 'grid') {
+    document.getElementById('grid-overlay').style.display = settings.grid ? 'block' : 'none';
+  }
+  if (!settings.skeleton) {
+    lCtx.clearRect(0, 0, landmarkCanvas.width, landmarkCanvas.height);
+  }
+  if (!settings.fx) {
+    fCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+    particles = []; effects = [];
+  }
+}
+
+// ─── Keyboard Shortcuts ───────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const map = {
+    's': ['skeleton', document.getElementById('toggle-skeleton')],
+    'f': ['fx',       document.getElementById('toggle-fx')],
+    'g': ['grid',     document.getElementById('toggle-grid')],
+  };
+  if (map[e.key.toLowerCase()]) {
+    const [key, btn] = map[e.key.toLowerCase()];
+    toggleSetting(key, btn);
+  }
+  if (e.key === 'Escape' && camera) {
+    camera.stop();
+    video.srcObject?.getTracks().forEach(t => t.stop());
+    document.getElementById('start-screen').style.display = 'flex';
+    document.getElementById('cam-dot').classList.remove('active');
+    document.getElementById('model-dot').classList.remove('active');
+  }
+});
+</script>
+</body>
+</html>
